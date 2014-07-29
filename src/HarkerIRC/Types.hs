@@ -1,50 +1,125 @@
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, FlexibleInstances #-}
 
-module HarkerIRC.Types where
+module HarkerIRC.Types 
+    -- type definitions
+    ( Nick
+    , User
+    , Chan
+    , Message
+    , RawIRCString
+
+    -- data/newtype definitions
+    , IRCInPrivMsg (..)
+    , IRCOutPrivMsg (..)
+    , IRCSystemMsg (..)
+    , IRCException (..)
+
+    -- instances
+    , Listable (..)
+    , IRCBasicMessage (..)
+    , IRCAdvancedMessage (..)
+    ) where
 
 import Control.Exception
 import Data.List
 import Data.Typeable
 
-type Nick = String
-type User = String
-type Chan = String
-type Message = String
+class Listable a where
+    toList   :: a -> [String]
+    fromList :: [String] -> a
 
-data IRCMessage = IRCMessage { ircnick :: Nick
-                             , ircuser :: User
-                             , ircauth :: Bool
-                             , ircchan :: Chan
-                             , ircmsg  :: Message
-                             }
-nullIRCMessage = IRCMessage "" "" False "" ""
+class IRCBasicMessage a where
+    ircNick :: a -> String
+    ircChan :: a -> String
+    ircMsg  :: a -> String
+
+class IRCAdvancedMessage a where
+    ircUser :: a -> String
+    ircAuth :: a -> Bool
+
+type Nick         = String
+type User         = String
+type Chan         = String
+type Message      = String
+type RawIRCString = String
+
+data IRCInPrivMsg = IRCInPrivMsg
+                  { _inircnick :: Nick
+                  , _inircuser :: User
+                  , _inircauth :: Bool
+                  , _inircchan :: Chan
+                  , _inircmsg  :: Message
+                  }
+
+instance IRCBasicMessage IRCInPrivMsg where
+    ircNick = _inircnick
+    ircChan = _inircchan
+    ircMsg  = _inircmsg
+
+instance IRCAdvancedMessage IRCInPrivMsg where
+    ircUser = _inircuser
+    ircAuth = _inircauth
+
+data IRCOutPrivMsg = IRCOutPrivMsg
+                   { _outircnick :: Nick
+                   , _outircchan :: Chan
+                   , _outircmsg  :: Message
+                   }
+
+instance IRCBasicMessage IRCOutPrivMsg where
+    ircNick = _outircnick
+    ircChan = _outircchan
+    ircMsg  = _outircmsg
+
+newtype IRCSystemMsg = IRCSystemMsg
+                     { getIRCSysMsg :: String
+                     }
+
+nullIRCInPrivMsg :: IRCInPrivMsg
+nullIRCInPrivMsg = IRCInPrivMsg "" "" False "" ""
+
+nullIRCOutPrivMsg :: IRCOutPrivMsg
+nullIRCOutPrivMsg = IRCOutPrivMsg "" "" ""
+
+instance Listable IRCInPrivMsg where
+    toList (IRCInPrivMsg n u a c m) =
+        [ "nick: " ++ n
+        , "user: " ++ c
+        , "auth: " ++ show a
+        , "chan: " ++ c
+        , "msg: "  ++ m
+        ]
+    
+    fromList = foldl mkmessage nullIRCInPrivMsg
+        where
+            mkmessage m s
+                | "nick: " `isPrefixOf` s = m { _inircnick = drop 6 s }
+                | "user: " `isPrefixOf` s = m { _inircuser = drop 6 s }
+                | "auth: true"       == s = m { _inircauth = True     }
+                | "auth: false"      == s = m { _inircauth = False    }
+                | "chan: " `isPrefixOf` s = m { _inircchan = drop 6 s }
+                | "msg: "  `isPrefixOf` s = m { _inircmsg  = drop 5 s }
+                | otherwise               = throw $ mpuException s
+
+instance Listable IRCOutPrivMsg where
+    toList (IRCOutPrivMsg n c m) =
+        [ "nick: " ++ n
+        , "chan: " ++ c
+        , "msg: "  ++ m
+        ]
+
+    fromList = foldl mkmessage nullIRCOutPrivMsg
+        where
+            mkmessage m s
+                | "nick: " `isPrefixOf` s = m { _outircnick = drop 6 s }
+                | "chan: " `isPrefixOf` s = m { _outircchan = drop 6 s }
+                | "msg: "  `isPrefixOf` s = m { _outircmsg  = drop 5 s }
+                | otherwise               = throw $ mpuException s
+
 
 data IRCException = IRCMessageParseException String
     deriving (Typeable, Show)
-
 instance Exception IRCException
-
-ircMessageToList :: IRCMessage -> [String]
-ircMessageToList (IRCMessage n u a c m) =
-    [ "nick: " ++ n
-    , "user: " ++ c
-    , "auth: " ++ show a
-    , "chan: " ++ c
-    , "msg: "  ++ m
-    ]
 
 mpuException :: String -> IRCException
 mpuException = IRCMessageParseException . (++) "Unrecognized token: "
-
-ircMessageFromList :: [String] -> IRCMessage
-ircMessageFromList = foldl mkmessage nullIRCMessage
-    where
-        mkmessage :: IRCMessage -> String -> IRCMessage
-        mkmessage m s
-            | "nick: " `isPrefixOf` s = m { ircnick = drop 6 s }
-            | "user: " `isPrefixOf` s = m { ircuser = drop 6 s }
-            | "auth: true"  ==      s = m { ircauth = True     }
-            | "auth: false" ==      s = m { ircauth = False    }
-            | "chan: " `isPrefixOf` s = m { ircchan = drop 6 s }
-            | "msg: "  `isPrefixOf` s = m { ircmsg  = drop 5 s }
-            | otherwise               = throw $ mpuException s
