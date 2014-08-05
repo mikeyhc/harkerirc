@@ -6,6 +6,7 @@ module HarkerIRC.Types
     , User
     , Chan
     , Message
+    , MessageQueue
     , RawIRCString
 
     -- data/newtype definitions
