@@ -41,6 +41,7 @@ type Nick         = String
 type User         = String
 type Chan         = String
 type Message      = String
+type MessageQueue = [String]
 type RawIRCString = String
 
 data IRCInPrivMsg = IRCInPrivMsg
