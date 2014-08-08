@@ -6,7 +6,8 @@ module HarkerIRC.Types
     , User
     , Chan
     , Message
-    , MessageQueue
+    , InMessageQueue
+    , OutMessageQueue
     , RawIRCString
 
     -- data/newtype definitions
@@ -38,12 +39,13 @@ class IRCAdvancedMessage a where
     ircUser :: a -> String
     ircAuth :: a -> Bool
 
-type Nick         = String
-type User         = String
-type Chan         = String
-type Message      = String
-type MessageQueue = [String]
-type RawIRCString = String
+type Nick            = String
+type User            = String
+type Chan            = String
+type Message         = String
+type InMessageQueue  = [IRCInPrivMsg]
+type OutMessageQueue = [IRCOutPrivMsg]
+type RawIRCString    = String
 
 data IRCInPrivMsg = IRCInPrivMsg
                   { _inircnick :: Nick
@@ -86,7 +88,7 @@ nullIRCOutPrivMsg = IRCOutPrivMsg "" "" ""
 instance Listable IRCInPrivMsg where
     toList (IRCInPrivMsg n u a c m) =
         [ "nick: " ++ n
-        , "user: " ++ c
+        , "user: " ++ u
         , "auth: " ++ show a
         , "chan: " ++ c
         , "msg: "  ++ m
