@@ -55,6 +55,7 @@ data IRCInPrivMsg = IRCInPrivMsg
                   , _inircchan :: Chan
                   , _inircmsg  :: Message
                   }
+    deriving (Show)
 
 instance IRCBasicMessage IRCInPrivMsg where
     ircNick = _inircnick
@@ -70,6 +71,7 @@ data IRCOutPrivMsg = IRCOutPrivMsg
                    , _outircchan :: Chan
                    , _outircmsg  :: Message
                    }
+        deriving (Show)
 
 instance IRCBasicMessage IRCOutPrivMsg where
     ircNick = _outircnick

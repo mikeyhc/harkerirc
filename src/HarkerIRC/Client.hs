@@ -35,12 +35,12 @@ class HarkerClientMonad m where
     getChan   :: m (Maybe Chan)
     getMMsg   :: m (Maybe Message)
     getMsg    :: m Message
-    getAuth   :: m (Maybe Bool)
+    getMAuth  :: m (Maybe Bool)
+    getAuth   :: m Bool
 
     setSocket :: Socket       -> m ()
     setHandle :: Handle       -> m ()
     setIRCMsg :: IRCInPrivMsg -> m ()
-
 
 newtype HarkerClientT m a = HarkerClientT (StateT HarkerClientData m a)
     deriving (Monad, Functor, MonadTrans)
@@ -62,7 +62,8 @@ instance (Functor m, Monad m) => HarkerClientMonad (HarkerClientT m) where
     getChan   = gets (fmap ircChan . hcdMessage)
     getMMsg   = gets (fmap ircMsg  . hcdMessage)
     getMsg    = gets (maybe ""  ircMsg . hcdMessage)
-    getAuth   = gets (fmap ircAuth . hcdMessage)
+    getMAuth  = gets (fmap ircAuth . hcdMessage)
+    getAuth   = gets (maybe False ircAuth . hcdMessage)
 
     setSocket x = modify (\m -> m { hcdSocket  = Just x })
     setHandle x = modify (\m -> m { hcdHandle  = Just x })
@@ -143,7 +144,6 @@ buildIRCMsg = fmap (fmap fromList) . buildIRCMsg'
 
 sendReply :: (HarkerClientMonad m, Monad m, MonadIO m) => String -> m ()
 sendReply msg = do
-    liftIO $ putStrLn msg
     mnick <- getNick
     mchan <- getChan
     mh    <- getHandle
