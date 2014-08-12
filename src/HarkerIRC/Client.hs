@@ -33,7 +33,8 @@ class HarkerClientMonad m where
     getUser   :: m (Maybe User)
     getNick   :: m (Maybe Nick)
     getChan   :: m (Maybe Chan)
-    getMsg    :: m (Maybe Message)
+    getMMsg   :: m (Maybe Message)
+    getMsg    :: m Message
     getAuth   :: m (Maybe Bool)
 
     setSocket :: Socket       -> m ()
@@ -59,7 +60,8 @@ instance (Functor m, Monad m) => HarkerClientMonad (HarkerClientT m) where
     getUser   = gets (fmap ircUser . hcdMessage)
     getNick   = gets (fmap ircNick . hcdMessage)
     getChan   = gets (fmap ircChan . hcdMessage)
-    getMsg    = gets (fmap ircMsg  . hcdMessage)
+    getMMsg   = gets (fmap ircMsg  . hcdMessage)
+    getMsg    = gets (maybe ""  ircMsg . hcdMessage)
     getAuth   = gets (fmap ircAuth . hcdMessage)
 
     setSocket x = modify (\m -> m { hcdSocket  = Just x })
@@ -70,6 +72,9 @@ type HarkerClient a = HarkerClientT IO a
 
 runHarkerClientT :: (Monad m) => HarkerClientT m a -> m a
 runHarkerClientT (HarkerClientT s) = evalStateT s harkerClientDataNull
+
+runHarkerClient :: HarkerClient a -> IO a
+runHarkerClient (HarkerClientT s) = evalStateT s harkerClientDataNull
 
 runPlugin :: (HarkerClientMonad m, Monad m, MonadIO m) => String -> String 
           -> m () -> (m () -> IO ())-> IO ()
@@ -97,9 +102,11 @@ acceptfunc :: (HarkerClientMonad m, Monad m, MonadIO m) => m ()
 acceptfunc f run (Just sock) = do
     tid <- myThreadId
     loopfunc $ do
-        accept sock >>= \(h, _, _) -> forkFinally 
-            (forkfunc h tid f run) 
-            (exitfunc h)
+        putStrLn "ready to accpet a new connection"
+        bracket (accept sock) (\(h,_,_) -> hClose h) 
+            (\(h, _, _) -> putStrLn "accepted connection" >> 
+                (forkfunc h tid f run))
+            
 acceptfunc _ _   _           = return ()
 
 forkfunc :: (HarkerClientMonad m, Monad m, MonadIO m) => Handle -> ThreadId 
@@ -115,13 +122,38 @@ handleRequest tid f = do
     mh <- getHandle 
     case mh of
         Just h -> loopfunc $ do
-            l <- liftIO (hGetLine h)
-            if l == "action: quit" 
-                then liftIO (hClose h >> throwTo tid (QuitException "done"))
-                else return ()
+            mircmsg <- liftIO $ buildIRCMsg h
+            case mircmsg of
+                Nothing     -> liftIO (hClose h 
+                                      >> throwTo tid (QuitException "done"))
+                Just ircmsg -> setIRCMsg ircmsg >> f
         _      -> liftIO $ throwTo tid (QuitException "no handle")
 
-exitfunc  h _ = hClose h
+buildIRCMsg :: Handle -> IO (Maybe IRCInPrivMsg)
+buildIRCMsg = fmap (fmap fromList) . buildIRCMsg'
+    where
+        buildIRCMsg' :: Handle -> IO (Maybe [String])
+        buildIRCMsg' h = do
+            l <- hGetLine h
+            if l == "action: quit" then do
+                                        putStrLn "recieved exit command"
+                                        return Nothing
+            else if l == "-"       then return $ Just []
+                                   else fmap (fmap (l:)) $ buildIRCMsg' h
+
+sendReply :: (HarkerClientMonad m, Monad m, MonadIO m) => String -> m ()
+sendReply msg = do
+    liftIO $ putStrLn msg
+    mnick <- getNick
+    mchan <- getChan
+    mh    <- getHandle
+    case (mnick, mchan, mh) of
+        (Just nick, Just chan, Just h) ->  do
+            mapM_ (liftIO . hPutStrLn h) . toList 
+                $ IRCOutPrivMsg nick chan msg
+            liftIO $ hPutStrLn h "-"
+        _                              ->
+            liftIO $ putStrLn "no message found"
 
 register :: String -> String -> String -> IO Handle
 register n v s = do

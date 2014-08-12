@@ -23,6 +23,7 @@ module HarkerIRC.Types
     ) where
 
 import Control.Exception
+import Data.Char
 import Data.List
 import Data.Typeable
 
@@ -96,14 +97,15 @@ instance Listable IRCInPrivMsg where
     
     fromList = foldl mkmessage nullIRCInPrivMsg
         where
+            strlower = map toLower
             mkmessage m s
-                | "nick: " `isPrefixOf` s = m { _inircnick = drop 6 s }
-                | "user: " `isPrefixOf` s = m { _inircuser = drop 6 s }
-                | "auth: true"       == s = m { _inircauth = True     }
-                | "auth: false"      == s = m { _inircauth = False    }
-                | "chan: " `isPrefixOf` s = m { _inircchan = drop 6 s }
-                | "msg: "  `isPrefixOf` s = m { _inircmsg  = drop 5 s }
-                | otherwise               = throw $ mpuException s
+                | "nick: " `isPrefixOf`     s = m { _inircnick = drop 6 s }
+                | "user: " `isPrefixOf`     s = m { _inircuser = drop 6 s }
+                | "auth: true"  == strlower s = m { _inircauth = True     }
+                | "auth: false" == strlower s = m { _inircauth = False    }
+                | "chan: " `isPrefixOf`     s = m { _inircchan = drop 6 s }
+                | "msg: "  `isPrefixOf`     s = m { _inircmsg  = drop 5 s }
+                | otherwise                   = throw $ mpuException s
 
 instance Listable IRCOutPrivMsg where
     toList (IRCOutPrivMsg n c m) =
