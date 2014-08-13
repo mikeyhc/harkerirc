@@ -26,7 +26,7 @@ data QuitException = QuitException String
     deriving (Typeable, Show)
 instance Exception QuitException
 
-class HarkerClientMonad m where
+class (Functor m, Monad m, MonadIO m) => HarkerClientMonad m where
     getSocket :: m (Maybe Socket)
     getHandle :: m (Maybe Handle)
     getIRCMsg :: m (Maybe IRCInPrivMsg)
@@ -53,7 +53,8 @@ instance (Monad m) => MonadState HarkerClientData (HarkerClientT m) where
     put   = HarkerClientT . put
     state = HarkerClientT . state
 
-instance (Functor m, Monad m) => HarkerClientMonad (HarkerClientT m) where
+instance (Functor m, Monad m, MonadIO m) => 
+         HarkerClientMonad (HarkerClientT m) where
     getSocket = gets hcdSocket
     getHandle = gets hcdHandle
     getIRCMsg = gets hcdMessage
@@ -77,7 +78,7 @@ runHarkerClientT (HarkerClientT s) = evalStateT s harkerClientDataNull
 runHarkerClient :: HarkerClient a -> IO a
 runHarkerClient (HarkerClientT s) = evalStateT s harkerClientDataNull
 
-runPlugin :: (HarkerClientMonad m, Monad m, MonadIO m) => String -> String 
+runPlugin :: (HarkerClientMonad m) => String -> String 
           -> m () -> (m () -> IO ())-> IO ()
 runPlugin n v f run = let sockaddr = "/tmp/." ++ n ++ ".sock"
     in bracket (pluginStartup n v sockaddr) (pluginShutdown sockaddr) 
@@ -98,8 +99,8 @@ pluginShutdown sockaddr _       = do
     b <- doesFileExist sockaddr 
     when b $ removeFile sockaddr
 
-acceptfunc :: (HarkerClientMonad m, Monad m, MonadIO m) => m () 
-           -> (m () -> IO ()) -> Maybe Socket -> IO ()
+acceptfunc :: (HarkerClientMonad m) => m () -> (m () -> IO ()) 
+           -> Maybe Socket -> IO ()
 acceptfunc f run (Just sock) = do
     tid <- myThreadId
     loopfunc $ do
@@ -110,15 +111,14 @@ acceptfunc f run (Just sock) = do
             
 acceptfunc _ _   _           = return ()
 
-forkfunc :: (HarkerClientMonad m, Monad m, MonadIO m) => Handle -> ThreadId 
+forkfunc :: (HarkerClientMonad m) => Handle -> ThreadId 
          -> m () -> (m () -> IO ()) -> IO ()
 forkfunc h tid f run =
     run $ do
         setHandle h
         handleRequest tid f
 
-handleRequest :: (HarkerClientMonad m, Monad m, MonadIO m) => ThreadId 
-              -> m () -> m ()
+handleRequest :: (HarkerClientMonad m) => ThreadId -> m () -> m ()
 handleRequest tid f = do
     mh <- getHandle 
     case mh of
@@ -142,7 +142,7 @@ buildIRCMsg = fmap (fmap fromList) . buildIRCMsg'
             else if l == "-"       then return $ Just []
                                    else fmap (fmap (l:)) $ buildIRCMsg' h
 
-sendReply :: (HarkerClientMonad m, Monad m, MonadIO m) => String -> m ()
+sendReply :: (HarkerClientMonad m, Monad m) => String -> m ()
 sendReply msg = do
     mnick <- getNick
     mchan <- getChan
@@ -171,3 +171,9 @@ quitcatch _ = putStrLn "quiting"
 trim [x]    | x == '\n' = []
             | otherwise = [x]
 trim (x:xs) = x:trim xs
+
+
+isauth :: (HarkerClientMonad m) => m () -> m ()
+isauth f = do
+    auth <- getAuth
+    if auth then f else sendReply "you are not authenticated for that"
