@@ -173,7 +173,7 @@ trim [x]    | x == '\n' = []
 trim (x:xs) = x:trim xs
 
 
-isauth :: (HarkerClientMonad m) => m () -> m ()
-isauth f = do
+ifauth :: (HarkerClientMonad m) => m () -> m ()
+ifauth f = do
     auth <- getAuth
     if auth then f else sendReply "you are not authenticated for that"
