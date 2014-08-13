@@ -27,20 +27,42 @@ data QuitException = QuitException String
 instance Exception QuitException
 
 class (Functor m, Monad m, MonadIO m) => HarkerClientMonad m where
-    getSocket :: m (Maybe Socket)
-    getHandle :: m (Maybe Handle)
-    getIRCMsg :: m (Maybe IRCInPrivMsg)
-    getUser   :: m (Maybe User)
-    getNick   :: m (Maybe Nick)
-    getChan   :: m (Maybe Chan)
-    getMMsg   :: m (Maybe Message)
-    getMsg    :: m Message
-    getMAuth  :: m (Maybe Bool)
-    getAuth   :: m Bool
+    clientLift :: HarkerClient a -> m a
+    getSocket  :: m (Maybe Socket)
+    getHandle  :: m (Maybe Handle)
+    getIRCMsg  :: m (Maybe IRCInPrivMsg)
+    getMUser   :: m (Maybe User)
+    getUser    :: m User
+    getMNick   :: m (Maybe Nick)
+    getNick    :: m Nick
+    getMChan   :: m (Maybe Chan)
+    getChan    :: m Chan
+    getMMsg    :: m (Maybe Message)
+    getMsg     :: m Message
+    getMAuth   :: m (Maybe Bool)
+    getAuth    :: m Bool
 
-    setSocket :: Socket       -> m ()
-    setHandle :: Handle       -> m ()
-    setIRCMsg :: IRCInPrivMsg -> m ()
+    setSocket  :: Socket       -> m ()
+    setHandle  :: Handle       -> m ()
+    setIRCMsg  :: IRCInPrivMsg -> m ()
+
+    getSocket  = clientLift $ getSocket
+    getHandle  = clientLift $ getHandle
+    getIRCMsg  = clientLift $ getIRCMsg
+    getMUser   = clientLift $ getMUser
+    getUser    = fmap (maybe "" id) getMUser
+    getMNick   = clientLift $ getMNick
+    getNick    = fmap (maybe "" id) getMNick
+    getMChan   = clientLift $ getMChan
+    getChan    = fmap (maybe "" id) getMChan
+    getMMsg    = clientLift $ getMMsg
+    getMsg     = fmap (maybe "" id) getMMsg
+    getMAuth   = clientLift $ getMAuth
+    getAuth    = fmap (maybe False id) getMAuth
+
+    setSocket  = clientLift . setSocket
+    setHandle  = clientLift . setHandle
+    setIRCMsg  = clientLift . setIRCMsg
 
 newtype HarkerClientT m a = HarkerClientT (StateT HarkerClientData m a)
     deriving (Monad, Functor, MonadTrans)
@@ -55,16 +77,15 @@ instance (Monad m) => MonadState HarkerClientData (HarkerClientT m) where
 
 instance (Functor m, Monad m, MonadIO m) => 
          HarkerClientMonad (HarkerClientT m) where
-    getSocket = gets hcdSocket
-    getHandle = gets hcdHandle
-    getIRCMsg = gets hcdMessage
-    getUser   = gets (fmap ircUser . hcdMessage)
-    getNick   = gets (fmap ircNick . hcdMessage)
-    getChan   = gets (fmap ircChan . hcdMessage)
-    getMMsg   = gets (fmap ircMsg  . hcdMessage)
-    getMsg    = gets (maybe ""  ircMsg . hcdMessage)
-    getMAuth  = gets (fmap ircAuth . hcdMessage)
-    getAuth   = gets (maybe False ircAuth . hcdMessage)
+    clientLift = undefined
+    getSocket  = gets hcdSocket
+    getHandle  = gets hcdHandle
+    getIRCMsg  = gets hcdMessage
+    getMUser   = gets (fmap ircUser . hcdMessage)
+    getMNick   = gets (fmap ircNick . hcdMessage)
+    getMChan   = gets (fmap ircChan . hcdMessage)
+    getMMsg    = gets (fmap ircMsg  . hcdMessage)
+    getMAuth   = gets (fmap ircAuth . hcdMessage)
 
     setSocket x = modify (\m -> m { hcdSocket  = Just x })
     setHandle x = modify (\m -> m { hcdHandle  = Just x })
@@ -144,8 +165,8 @@ buildIRCMsg = fmap (fmap fromList) . buildIRCMsg'
 
 sendReply :: (HarkerClientMonad m, Monad m) => String -> m ()
 sendReply msg = do
-    mnick <- getNick
-    mchan <- getChan
+    mnick <- getMNick
+    mchan <- getMChan
     mh    <- getHandle
     case (mnick, mchan, mh) of
         (Just nick, Just chan, Just h) ->  do
