@@ -35,6 +35,8 @@ class (Functor m, Monad m, MonadIO m) => HarkerClientMonad m where
     getUser    :: m User
     getMNick   :: m (Maybe Nick)
     getNick    :: m Nick
+    getMMyNick :: m (Maybe Nick)
+    getMyNick  :: m Nick
     getMChan   :: m (Maybe Chan)
     getChan    :: m Chan
     getMMsg    :: m (Maybe Message)
@@ -53,6 +55,8 @@ class (Functor m, Monad m, MonadIO m) => HarkerClientMonad m where
     getUser    = fmap (maybe "" id) getMUser
     getMNick   = clientLift $ getMNick
     getNick    = fmap (maybe "" id) getMNick
+    getMMyNick = clientLift $ getMMyNick
+    getMyNick  = fmap (maybe "" id) getMMyNick
     getMChan   = clientLift $ getMChan
     getChan    = fmap (maybe "" id) getMChan
     getMMsg    = clientLift $ getMMsg
@@ -81,11 +85,12 @@ instance (Functor m, Monad m, MonadIO m) =>
     getSocket  = gets hcdSocket
     getHandle  = gets hcdHandle
     getIRCMsg  = gets hcdMessage
-    getMUser   = gets (fmap ircUser . hcdMessage)
-    getMNick   = gets (fmap ircNick . hcdMessage)
-    getMChan   = gets (fmap ircChan . hcdMessage)
-    getMMsg    = gets (fmap ircMsg  . hcdMessage)
-    getMAuth   = gets (fmap ircAuth . hcdMessage)
+    getMUser   = gets (fmap ircUser   . hcdMessage)
+    getMNick   = gets (fmap ircNick   . hcdMessage)
+    getMMyNick = gets (fmap ircMyNick . hcdMessage)
+    getMChan   = gets (fmap ircChan   . hcdMessage)
+    getMMsg    = gets (fmap ircMsg    . hcdMessage)
+    getMAuth   = gets (fmap ircAuth   . hcdMessage)
 
     setSocket x = modify (\m -> m { hcdSocket  = Just x })
     setHandle x = modify (\m -> m { hcdHandle  = Just x })

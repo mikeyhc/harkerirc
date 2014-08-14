@@ -32,13 +32,14 @@ class Listable a where
     fromList :: [String] -> a
 
 class IRCBasicMessage a where
-    ircNick :: a -> String
-    ircChan :: a -> String
-    ircMsg  :: a -> String
+    ircNick :: a -> Nick
+    ircChan :: a -> Chan
+    ircMsg  :: a -> Message
 
 class IRCAdvancedMessage a where
-    ircUser :: a -> String
-    ircAuth :: a -> Bool
+    ircUser   :: a -> User
+    ircAuth   :: a -> Bool
+    ircMyNick :: a -> Nick
 
 type Nick            = String
 type User            = String
@@ -49,11 +50,12 @@ type OutMessageQueue = [IRCOutPrivMsg]
 type RawIRCString    = String
 
 data IRCInPrivMsg = IRCInPrivMsg
-                  { _inircnick :: Nick
-                  , _inircuser :: User
-                  , _inircauth :: Bool
-                  , _inircchan :: Chan
-                  , _inircmsg  :: Message
+                  { _inircnick   :: Nick
+                  , _inircmynick :: Nick
+                  , _inircuser   :: User
+                  , _inircauth   :: Bool
+                  , _inircchan   :: Chan
+                  , _inircmsg    :: Message
                   }
     deriving (Show)
 
@@ -63,8 +65,9 @@ instance IRCBasicMessage IRCInPrivMsg where
     ircMsg  = _inircmsg
 
 instance IRCAdvancedMessage IRCInPrivMsg where
-    ircUser = _inircuser
-    ircAuth = _inircauth
+    ircUser   = _inircuser
+    ircAuth   = _inircauth
+    ircMyNick = _inircmynick
 
 data IRCOutPrivMsg = IRCOutPrivMsg
                    { _outircnick :: Nick
@@ -83,30 +86,32 @@ newtype IRCSystemMsg = IRCSystemMsg
                      }
 
 nullIRCInPrivMsg :: IRCInPrivMsg
-nullIRCInPrivMsg = IRCInPrivMsg "" "" False "" ""
+nullIRCInPrivMsg = IRCInPrivMsg "" "" "" False "" ""
 
 nullIRCOutPrivMsg :: IRCOutPrivMsg
 nullIRCOutPrivMsg = IRCOutPrivMsg "" "" ""
 
 instance Listable IRCInPrivMsg where
-    toList (IRCInPrivMsg n u a c m) =
-        [ "nick: " ++ n
-        , "user: " ++ u
-        , "auth: " ++ show a
-        , "chan: " ++ c
-        , "msg: "  ++ m
+    toList (IRCInPrivMsg n mn u a c m) =
+        [ "nick: "   ++ n
+        , "mynick: " ++ mn
+        , "user: "   ++ u
+        , "auth: "   ++ show a
+        , "chan: "   ++ c
+        , "msg: "    ++ m
         ]
     
     fromList = foldl mkmessage nullIRCInPrivMsg
         where
             strlower = map toLower
             mkmessage m s
-                | "nick: " `isPrefixOf`     s = m { _inircnick = drop 6 s }
-                | "user: " `isPrefixOf`     s = m { _inircuser = drop 6 s }
-                | "auth: true"  == strlower s = m { _inircauth = True     }
-                | "auth: false" == strlower s = m { _inircauth = False    }
-                | "chan: " `isPrefixOf`     s = m { _inircchan = drop 6 s }
-                | "msg: "  `isPrefixOf`     s = m { _inircmsg  = drop 5 s }
+                | "nick: " `isPrefixOf`     s = m { _inircnick   = drop 6 s }
+                | "mynick: " `isPrefixOf`   s = m { _inircmynick = drop 8 s }
+                | "user: " `isPrefixOf`     s = m { _inircuser   = drop 6 s }
+                | "auth: true"  == strlower s = m { _inircauth   = True     }
+                | "auth: false" == strlower s = m { _inircauth   = False    }
+                | "chan: " `isPrefixOf`     s = m { _inircchan   = drop 6 s }
+                | "msg: "  `isPrefixOf`     s = m { _inircmsg    = drop 5 s }
                 | otherwise                   = throw $ mpuException s
 
 instance Listable IRCOutPrivMsg where
