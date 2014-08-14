@@ -126,7 +126,9 @@ acceptfunc f run (Just sock) = do
     tid <- myThreadId
     loopfunc $ do
         putStrLn "ready to accpet a new connection"
-        bracket (accept sock) (\(h,_,_) -> hClose h) 
+        bracket (accept sock) 
+            (\(h,_,_) -> hIsOpen h >>= \isOpen -> if isOpen then hClose h
+                                                            else return())
             (\(h, _, _) -> putStrLn "accepted connection" >> 
                 (forkfunc h tid f run))
             
