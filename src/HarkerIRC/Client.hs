@@ -3,24 +3,28 @@
 
 module HarkerIRC.Client where
 
+import Control.Arrow (second)
 import Control.Applicative
 import Control.Concurrent (ThreadId, myThreadId, forkFinally)
 import Control.Exception
 import Control.Monad
 import Control.Monad.State
 import Data.Typeable
+import Data.List (find)
+import Data.Maybe (fromMaybe, isJust)
 import HarkerIRC.Types
 import Network
 import System.Directory
 import System.IO
 
 data HarkerClientData = HarkerClientData
-    { hcdMessage :: Maybe IRCInPrivMsg
-    , hcdSocket  :: Maybe Socket
-    , hcdHandle  :: Maybe Handle
+    { hcdMessage  :: Maybe IRCInPrivMsg
+    , hcdSocket   :: Maybe Socket
+    , hcdHandle   :: Maybe Handle
+    , hcdMsgQueue :: [String]
     }
 
-harkerClientDataNull = HarkerClientData Nothing Nothing Nothing
+harkerClientDataNull = HarkerClientData Nothing Nothing Nothing []
 
 data QuitException = QuitException String
     deriving (Typeable, Show)
@@ -48,25 +52,33 @@ class (Functor m, Monad m, MonadIO m) => HarkerClientMonad m where
     setHandle  :: Handle       -> m ()
     setIRCMsg  :: IRCInPrivMsg -> m ()
 
-    getSocket  = clientLift $ getSocket
-    getHandle  = clientLift $ getHandle
-    getIRCMsg  = clientLift $ getIRCMsg
-    getMUser   = clientLift $ getMUser
-    getUser    = fmap (maybe "" id) getMUser
-    getMNick   = clientLift $ getMNick
-    getNick    = fmap (maybe "" id) getMNick
-    getMMyNick = clientLift $ getMMyNick
-    getMyNick  = fmap (maybe "" id) getMMyNick
-    getMChan   = clientLift $ getMChan
-    getChan    = fmap (maybe "" id) getMChan
-    getMMsg    = clientLift $ getMMsg
-    getMsg     = fmap (maybe "" id) getMMsg
-    getMAuth   = clientLift $ getMAuth
-    getAuth    = fmap (maybe False id) getMAuth
+    getMsgQueue :: m [String]
+    modMsgQueue :: ([String] -> [String]) -> m ()
+    getWho      :: Nick -> m (Maybe User)
 
-    setSocket  = clientLift . setSocket
-    setHandle  = clientLift . setHandle
-    setIRCMsg  = clientLift . setIRCMsg
+    getSocket  = clientLift getSocket
+    getHandle  = clientLift getHandle
+    getIRCMsg  = clientLift getIRCMsg
+    getMUser   = clientLift getMUser
+    getUser    = fmap (fromMaybe "") getMUser
+    getMNick   = clientLift getMNick
+    getNick    = fmap (fromMaybe "") getMNick
+    getMMyNick = clientLift getMMyNick
+    getMyNick  = fmap (fromMaybe "") getMMyNick
+    getMChan   = clientLift getMChan
+    getChan    = fmap (fromMaybe "" ) getMChan
+    getMMsg    = clientLift getMMsg
+    getMsg     = fmap (fromMaybe "") getMMsg
+    getMAuth   = clientLift getMAuth
+    getAuth    = fmap (fromMaybe False) getMAuth
+
+    setSocket = clientLift . setSocket
+    setHandle = clientLift . setHandle
+    setIRCMsg = clientLift . setIRCMsg
+
+    getMsgQueue = clientLift getMsgQueue
+    modMsgQueue = clientLift . modMsgQueue
+    getWho      = clientLift . getWho
 
 newtype HarkerClientT m a = HarkerClientT (StateT HarkerClientData m a)
     deriving (Monad, Functor, MonadTrans)
@@ -75,7 +87,7 @@ instance (MonadIO m) => MonadIO (HarkerClientT m) where
     liftIO = HarkerClientT . liftIO 
 
 instance (Monad m) => MonadState HarkerClientData (HarkerClientT m) where
-    get   = HarkerClientT $ get
+    get   = HarkerClientT get
     put   = HarkerClientT . put
     state = HarkerClientT . state
 
@@ -95,6 +107,10 @@ instance (Functor m, Monad m, MonadIO m) =>
     setSocket x = modify (\m -> m { hcdSocket  = Just x })
     setHandle x = modify (\m -> m { hcdHandle  = Just x })
     setIRCMsg x = modify (\m -> m { hcdMessage = Just x })
+
+    getMsgQueue   = gets hcdMsgQueue
+    modMsgQueue f = modify (\s -> s { hcdMsgQueue = f $ hcdMsgQueue s })
+    getWho        = doGetWho
 
 type HarkerClient a = HarkerClientT IO a
 
@@ -132,10 +148,9 @@ acceptfunc f run (Just sock) = do
     loopfunc $ do
         putStrLn "ready to accpet a new connection"
         bracket (accept sock) 
-            (\(h,_,_) -> hIsOpen h >>= \isOpen -> if isOpen then hClose h
-                                                            else return())
-            (\(h, _, _) -> putStrLn "accepted connection" >> 
-                (forkfunc h tid f run))
+            (\(h,_,_) -> hIsOpen h >>= \isOpen -> when isOpen $ hClose h)
+            (\(h, _, _) -> putStrLn "accepted connection" 
+                           >> forkfunc h tid f run)
             
 acceptfunc _ _   _           = return ()
 
@@ -151,26 +166,35 @@ handleRequest tid f = do
     mh <- getHandle 
     case mh of
         Just h -> loopfunc $ do
-            mircmsg <- liftIO $ buildIRCMsg h
+            l <- getMsgQueue
+            modMsgQueue (const [])
+            mircmsg <- if hasQuit l then return Nothing
+                                    else liftIO $ buildIRCMsg l h
             case mircmsg of
-                Nothing     -> liftIO (hClose h 
-                                      >> throwTo tid (QuitException "done"))
+                Nothing     -> liftIO (shutdown tid h)
                 Just ircmsg -> setIRCMsg ircmsg >> f
         _      -> liftIO $ throwTo tid (QuitException "no handle")
 
-buildIRCMsg :: Handle -> IO (Maybe IRCInPrivMsg)
-buildIRCMsg = fmap (fmap fromList) . buildIRCMsg'
-    where
-        buildIRCMsg' :: Handle -> IO (Maybe [String])
-        buildIRCMsg' h = do
-            l <- hGetLine h
-            if l == "action: quit" then do
-                                        putStrLn "recieved exit command"
-                                        return Nothing
-            else if l == "-"       then return $ Just []
-                                   else fmap (fmap (l:)) $ buildIRCMsg' h
+buildIRCMsg :: [String] -> Handle -> IO (Maybe IRCInPrivMsg)
+buildIRCMsg l = fmap (fmap (fromList . (l ++))) . buildIRCMsg'
+  where
+    buildIRCMsg' :: Handle -> IO (Maybe [String])
+    buildIRCMsg' h = do
+        l <- hGetLine h
+        if l == "action: quit" then return Nothing
+        else if l == "-"       then return $ Just []
+                               else fmap (l:) <$> buildIRCMsg' h
 
-sendReply :: (HarkerClientMonad m, Monad m) => String -> m ()
+hasQuit :: [String] -> Bool
+hasQuit = isJust . find (== "action: quit")
+
+shutdown :: ThreadId -> Handle -> IO ()
+shutdown tid h = do
+    putStrLn "recieved exit command"
+    hClose h
+    throwTo tid (QuitException "done")
+
+sendReply :: (HarkerClientMonad m) => String -> m ()
 sendReply msg = do
     mnick <- getMNick
     mchan <- getMChan
@@ -205,3 +229,31 @@ ifauth :: (HarkerClientMonad m) => m () -> m ()
 ifauth f = do
     auth <- getAuth
     if auth then f else sendReply "you are not authenticated for that"
+
+doGetWho :: (HarkerClientMonad m) => Nick -> m (Maybe User)
+doGetWho n = do
+    mh <- getHandle
+    case mh of
+        Just h -> do
+            liftIO $ hPutStrLn h "%who"
+            l <- buildWhoList h
+            case find (\(n', _) -> n' == n) l of
+                Just (_, u) -> return $ Just u
+                _           -> return Nothing
+        _      -> liftIO (putStrLn "no handle") >> return Nothing
+
+
+buildWhoList :: (HarkerClientMonad m) => Handle -> m [(String, String)]
+buildWhoList h = do
+    l <- liftIO $ hGetLine h
+    if l == "%wholist" then liftIO $ readWhoList h
+    else modMsgQueue (l:) >> buildWhoList h
+
+readWhoList :: Handle -> IO [(String, String)]
+readWhoList h = do
+    l <- hGetLine h
+    if l == "%endwholist" then return []
+                          else (splitInput l:) <$> readWhoList h
+  where
+    splitInput :: String -> (String, String)
+    splitInput = second (tail . tail) . break (== ':')

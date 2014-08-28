@@ -15,6 +15,7 @@ module HarkerIRC.Types
     , IRCOutPrivMsg (..)
     , IRCSystemMsg (..)
     , IRCException (..)
+    , IRCWhoMsg (..)
 
     -- instances
     , Listable (..)
@@ -22,6 +23,7 @@ module HarkerIRC.Types
     , IRCAdvancedMessage (..)
     ) where
 
+import Control.Arrow (second)
 import Control.Exception
 import Data.Char
 import Data.List
@@ -81,9 +83,8 @@ instance IRCBasicMessage IRCOutPrivMsg where
     ircChan = _outircchan
     ircMsg  = _outircmsg
 
-newtype IRCSystemMsg = IRCSystemMsg
-                     { getIRCSysMsg :: String
-                     }
+newtype IRCSystemMsg = IRCSystemMsg { getIRCSysMsg :: String }
+newtype IRCWhoMsg    = IRCWhoMsg { getIRCWhoMsg :: [(Nick, User)] }
 
 nullIRCInPrivMsg :: IRCInPrivMsg
 nullIRCInPrivMsg = IRCInPrivMsg "" "" "" False "" ""
@@ -129,6 +130,10 @@ instance Listable IRCOutPrivMsg where
                 | "msg: "  `isPrefixOf` s = m { _outircmsg  = drop 5 s }
                 | otherwise               = throw $ mpuException s
 
+
+instance Listable IRCWhoMsg where
+    toList = map (\(n, u) -> n ++ ": " ++ u) . getIRCWhoMsg
+    fromList = IRCWhoMsg . map (second (tail . tail) . break (== ':'))
 
 data IRCException = IRCMessageParseException String
     deriving (Typeable, Show)
