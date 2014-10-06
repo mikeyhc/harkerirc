@@ -202,7 +202,7 @@ sendReply msg = do
     case (mnick, mchan, mh) of
         (Just nick, Just chan, Just h) ->  do
             mapM_ (liftIO . hPutStrLn h) . toList 
-                $ IRCOutPrivMsg nick chan msg
+                $ IRCOutPrivMsg nick chan (filter (/= '\n') msg)
             liftIO $ hPutStrLn h "-"
         _                              ->
             liftIO $ putStrLn "no message found"
